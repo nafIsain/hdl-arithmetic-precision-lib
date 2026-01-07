@@ -1,0 +1,49 @@
+module fp16_to_fp8 (
+	input  logic [15:0] fp16_in,
+    output logic [7:0]  fp8_out
+);
+
+    logic        sign_16;
+    logic [4:0]  exp_16;
+    logic [9:0]  mant_16;
+    
+    logic        sign_8;
+    logic [3:0]  exp_8;
+    logic [2:0]  mant_8;
+    
+    assign sign_16 = fp16_in[15];
+    assign exp_16  = fp16_in[14:10];
+    assign mant_16 = fp16_in[9:0];
+    
+    // FP8 E4M3 range:
+    // min normal: 2^(1-7) = 2^(-6), exp_16 = 1-7+15 = 9
+    // max normal: 2^(14-7) * 1.875 = 240, exp_16 = 14-7+15 = 22
+    
+    logic signed [5:0] exp_adjusted;
+    assign exp_adjusted = $signed({1'b0, exp_16}) - $signed(6'd8);
+    
+    always_comb begin
+        sign_8 = sign_16;
+        
+        if (exp_16 == 5'd0) begin
+            // zero or denormal -> zero
+            exp_8  = 4'd0;
+            mant_8 = 3'd0;
+        end else if (exp_adjusted <= 0) begin
+            // underflow -> zero
+            exp_8  = 4'd0;
+            mant_8 = 3'd0;
+        end else if (exp_adjusted > 14) begin
+            // Ooverflow -> saturate to max
+            exp_8  = 4'd14;
+            mant_8 = 3'd7;
+        end else begin
+            // normal conversion
+            exp_8  = exp_adjusted[3:0];
+            mant_8 = mant_16[9:7];  // Take top 3 bits of mantissa
+        end
+    end
+    
+    assign fp8_out = {sign_8, exp_8, mant_8};
+
+endmodule
